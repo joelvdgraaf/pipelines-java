@@ -9,11 +9,101 @@ trigger:
 pool:
   vmImage: 'ubuntu-latest'
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+variables:
+  Mendix_App: 'bkd-bus100'
+  Mendix_ApiKey: 'd2b7f5d3-4830-4bac-a3fd-7e9c35079abd'
+  Mendix_Username: 'joel@appronto.nl'
+  Mendix_Env: 'Test'
+  Mendix_DevLine: 'trunk'
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+steps:
+- task: CdiscountAlm.rest-call-build-task.custom-build-task.restCallBuildTask@0
+  displayName: 'Get Latest Main-Line Commit'
+  inputs:
+    webserviceEndpoint: 'Mendix API'
+    relativeUrl: 'api/1/apps/$(Mendix_App)/branches/trunk'
+    saveResponseToFile: true
+    outputFilePath: output.json
+    headers: '{"Mendix-ApiKey": "$(Mendix_ApiKey)", "Mendix-Username": "$(Mendix_Username)"}'
+
+- task: OneLuckiDev.json2variable.vsts-release-web-test.oneLuckiDevJson2Variable@1
+  displayName: 'JSON revision'
+  inputs:
+    jsonFile: output.json
+    variablePrefix: revision
+
+- task: CdiscountAlm.rest-call-build-task.custom-build-task.restCallBuildTask@0
+  displayName: 'Built package on latest commit'
+  inputs:
+    webserviceEndpoint: 'Mendix API'
+    relativeUrl: 'api/1/apps/$(Mendix_App)/packages/'
+    httpVerb: POST
+    body: |
+     {
+          "Branch" : "$(revision.Name)" ,
+          "Revision" :  $(revision.LatestRevisionNumber) ,
+          "Version" :  "1.0.0" ,
+          "Description" :  "Pipeline Deploy $(System.TeamProject)"
+     }
+    saveResponseToFile: true
+    outputFilePath: output.json
+    headers: '{"Mendix-ApiKey": "$(Mendix_ApiKey)", "Mendix-Username": "$(Mendix_Username)"}'
+
+- task: OneLuckiDev.json2variable.vsts-release-web-test.oneLuckiDevJson2Variable@1
+  displayName: 'JSON built'
+  inputs:
+    jsonFile: output.json
+    variablePrefix: built
+
+- task: deadlydog.WaitBuildAndReleaseTask.Wait.Wait@1
+  displayName: 'Wait for 60 seconds'
+  inputs:
+    Value: 60
+
+- task: CdiscountAlm.rest-call-build-task.custom-build-task.restCallBuildTask@0
+  displayName: 'Built package complete'
+  inputs:
+    webserviceEndpoint: 'Mendix API'
+    relativeUrl: 'api/1/apps/$(Mendix_App)/packages/$(built.PackageId)'
+    saveResponseToFile: true
+    outputFilePath: output.json
+    headers: '{"Mendix-ApiKey": "$(Mendix_ApiKey)", "Mendix-Username": "$(Mendix_Username)"}'
+
+- task: OneLuckiDev.json2variable.vsts-release-web-test.oneLuckiDevJson2Variable@1
+  displayName: 'JSON package'
+  inputs:
+    jsonFile: output.json
+    variablePrefix: package
+
+- task: CdiscountAlm.rest-call-build-task.custom-build-task.restCallBuildTask@0
+  displayName: 'Stop Environment'
+  inputs:
+    webserviceEndpoint: 'Mendix API'
+    relativeUrl: 'api/1/apps/$(Mendix_App)/environments/$(Mendix_Env)/stop'
+    httpVerb: POST
+    saveResponseToFile: true
+    outputFilePath: output.json
+    headers: '{"Mendix-ApiKey": "$(Mendix_ApiKey)", "Mendix-Username": "$(Mendix_Username)"}'
+
+- task: CdiscountAlm.rest-call-build-task.custom-build-task.restCallBuildTask@0
+  displayName: 'Package transport'
+  inputs:
+    webserviceEndpoint: 'Mendix API'
+    relativeUrl: 'api/1/apps/$(Mendix_App)/environments/$(Mendix_Env)/transport'
+    httpVerb: POST
+    body: '{"PackageId" : "$(built.PackageId)"}'
+    saveResponseToFile: true
+    outputFilePath: output.json
+    headers: '{"Mendix-ApiKey": "$(Mendix_ApiKey)", "Mendix-Username": "$(Mendix_Username)"}'
+
+- task: CdiscountAlm.rest-call-build-task.custom-build-task.restCallBuildTask@0
+  displayName: 'Start Environment'
+  inputs:
+    webserviceEndpoint: 'Mendix API'
+    relativeUrl: 'api/1/apps/$(Mendix_App)/environments/$(Mendix_Env)/start'
+    httpVerb: POST
+    body: '{"AutoSyncDb" :  true}'
+    saveResponseToFile: true
+    outputFilePath: output.json
+    headers: '{"Mendix-ApiKey": "$(Mendix_ApiKey)", "Mendix-Username": "$(Mendix_Username)"}'
+
